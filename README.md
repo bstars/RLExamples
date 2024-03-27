@@ -12,3 +12,8 @@ This repository contains implementations of common reinforcement learning algori
 <p>
   <img width="50%" src="https://github.com/bstars/RLExamples/blob/main/ppo/walker.gif">
 </p>
+
+- Modern version of Soft Actor-Critic (according to [Soft Actor-Critic Algorithms and Applications](https://arxiv.org/abs/1812.05905)) for walker example
+<p>
+  <img width="50%" src="https://github.com/bstars/RLExamples/blob/main/sac/walker_modern.gif">
+</p>
