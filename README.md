@@ -17,3 +17,8 @@ This repository contains implementations of common reinforcement learning algori
 <p>
   <img width="50%" src="https://github.com/bstars/RLExamples/blob/main/sac/walker_modern.gif">
 </p>
+
+- Standard version of Soft Actor-Critic (according to [Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor]([https://arxiv.org/abs/1812.05905](https://arxiv.org/pdf/1801.01290)) for walker example
+<p>
+  <img width="50%" src="https://github.com/bstars/RLExamples/blob/main/sac/walker_standard.gif">
+</p>
