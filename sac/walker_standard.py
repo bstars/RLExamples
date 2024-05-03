@@ -18,17 +18,10 @@ def tensor_to_array(ten):
 	return ten.cpu().detach().numpy()
 
 
-def init_weight(layer, initializer="he"):
-	if initializer == "xavier":
-		nn.init.xavier_uniform_(layer.weight)
-	elif initializer == "he":
-		nn.init.kaiming_normal_(layer.weight)
-
 def pipe(x, *funcs):
 	for f in funcs:
 		x = f(x)
 	return x
-
 
 class QNetwork(nn.Module):
 	def __init__(self, state_dim, action_dim):
@@ -51,10 +44,27 @@ class QNetwork(nn.Module):
 		sa = torch.cat([states, actions], dim=-1)
 		return self.net(sa).squeeze(-1)
 
+class VNetwork(nn.Module):
+	def __init__(self, state_dim):
+		super().__init__()
+
+		self.net = nn.Sequential(
+			nn.Linear(state_dim, 256), nn.ReLU(),
+			nn.Linear(256, 256), nn.ReLU(),
+			nn.Linear(256, 1)
+		)
+
+	def forward(self, states):
+		"""
+		:param states: [batch, state_dim]
+		:return:
+		:rtype:
+		"""
+		return self.net(states).squeeze(-1)
+
 class PiNetwork(nn.Module):
 	def __init__(self, state_dim, action_dim):
 		super().__init__()
-
 		self.net = nn.Sequential(
 			nn.Linear(state_dim, 256), nn.ReLU(),
 			nn.Linear(256, 256), nn.ReLU(),
@@ -86,6 +96,7 @@ class PiNetwork(nn.Module):
 Transition = namedtuple('Transition',
                         ('state', 'action', 'reward', 'terminal', 'state_next'))
 
+
 class Memory:
 	def __init__(self, size):
 		self.buffer = []
@@ -111,7 +122,7 @@ class Memory:
 			torch.from_numpy(terminal).float(), \
 			torch.from_numpy(state_next).float()
 
-class SACModern:
+class SACStandard:
 	def __init__(self):
 		self.gamma = 0.99
 		self.env = DeepMindWrapper('walker', 'walk')
@@ -127,60 +138,53 @@ class SACModern:
 		self.Pi = PiNetwork(self.state_dim, self.action_dim)
 		self.Q1 = QNetwork(self.state_dim, self.action_dim)
 		self.Q2 = QNetwork(self.state_dim, self.action_dim)
-		self.Q1_target = QNetwork(self.state_dim, self.action_dim)
-		self.Q2_target = QNetwork(self.state_dim, self.action_dim)
-		self.Q1_target.load_state_dict(self.Q1.state_dict())
-		self.Q2_target.load_state_dict(self.Q2.state_dict())
-		self.Q1_target.eval()
-		self.Q2_target.eval()
+		self.V = VNetwork(self.state_dim)
+		self.V_target = VNetwork(self.state_dim)
+		self.V_target.load_state_dict(self.V.state_dict())
+		self.V_target.eval()
 
 		self.log_alpha = torch.zeros(1, requires_grad=True)
 
+	@torch.no_grad()
 	def sample_step(self, random=True):
-		with torch.no_grad():
-			if random:
-				action = self.env.random_action()
-			else:
-				action, _ = pipe(self.state[None, :], array_to_tensor, self.Pi)
-				action = tensor_to_array(action[0])
-			state_next, reward, terminal, _, _ = self.env.step(action)
-			self.episode_reward += reward
+		if random:
+			action = self.env.random_action()
+		else:
+			action, _ = pipe(self.state[None,:], array_to_tensor, self.Pi)
+			action = tensor_to_array(action[0])
 
+		state_next, reward, terminal, _, _ = self.env.step(action)
+		self.episode_reward += reward
 
-			self.buffer.add(self.state.copy(), action, reward, terminal, state_next)
+		self.buffer.add(self.state.copy(), action, reward, terminal, state_next)
 
-			self.state = state_next.copy()
+		self.state = state_next.copy()
 
-			if terminal:
-				self.episodes += 1
-				print(self.episodes, self.episode_reward)
-				self.episode_reward = 0
-				self.state, _ = self.env.reset()
+		if terminal:
+			self.episodes += 1
+			print(self.episodes, self.episode_reward)
+			self.episode_reward = 0
+			self.state, _ = self.env.reset()
 
 	def train(self):
 		for _ in range(256):
 			self.sample_step(random=False)
-
-		Q1_opt = torch.optim.Adam(self.Q1.parameters(), lr=3e-4)
-		Q2_opt = torch.optim.Adam(self.Q2.parameters(), lr=3e-4)
-		Pi_opt = torch.optim.Adam(self.Pi.parameters(), lr=3e-4)
-		A_opt = torch.optim.Adam([self.log_alpha], lr=3e-4)
+		Q1_opt = torch.optim.Adam(self.Q1.parameters(), lr=1e-3)
+		Q2_opt = torch.optim.Adam(self.Q2.parameters(), lr=1e-3)
+		V_opt = torch.optim.Adam(self.V.parameters(), lr=1e-3)
+		Pi_opt = torch.optim.Adam(self.Pi.parameters(), lr=1e-3)
+		A_opt = torch.optim.Adam([self.log_alpha], lr=1e-3)
 		num_iter = 0
 		num_ckpt = 0
 
 		while True:
 			num_iter += 1
 			states, actions, rewards, terminals, states_next = self.buffer.sample(self.batch_size)
-			self.alpha = self.log_alpha.exp()
 
 			with torch.no_grad():
-				actions_next, log_probs_next = self.Pi(states_next)
-				q1_next = self.Q1_target(states_next, actions_next)
-				q2_next = self.Q2_target(states_next, actions_next)
-				q_next = torch.min(q1_next, q2_next)
-				q_target = rewards + self.gamma * (1 - terminals) * (q_next - self.alpha * log_probs_next)
+				q_target = rewards + self.gamma * self.V_target(states_next)
 
-			# train Q network
+			# Train Q network
 			q1 = self.Q1(states, actions)
 			q2 = self.Q2(states, actions)
 			q1_loss = F.mse_loss(q1, q_target)
@@ -194,34 +198,37 @@ class SACModern:
 			q2_loss.backward()
 			Q2_opt.step()
 
-			# train policy
+			# sample actions
 			actions_new, log_probs_new = self.Pi(states)
 
+			# Train V network
 			q1 = self.Q1(states, actions_new)
 			q2 = self.Q2(states, actions_new)
 			q = torch.min(q1, q2)
-			Pi_loss = (self.alpha * log_probs_new - q).mean()
+			v_target = q - self.log_alpha.exp() * log_probs_new
+			v = self.V(states)
+			v_loss = F.mse_loss(v, v_target.detach())
 
+			V_opt.zero_grad()
+			v_loss.backward()
+			V_opt.step()
+
+			# Train Pi network
+			Pi_loss = (self.log_alpha.exp().detach() * log_probs_new - q).mean()
 			Pi_opt.zero_grad()
 			Pi_loss.backward()
 			Pi_opt.step()
 
-
 			# dual update, very similar to Adaptive KL coefficient in PPO
-			A_loss = - self.log_alpha.exp() *  (log_probs_new - self.action_dim).detach().mean()
+			A_loss = - self.log_alpha.exp() * (log_probs_new - self.action_dim).detach().mean()
 
 			A_opt.zero_grad()
 			A_loss.backward()
 			A_opt.step()
 
 			with torch.no_grad():
-				for param, target_param in zip(self.Q1.parameters(), self.Q1_target.parameters()):
-					target_param.data.copy_(0.995*target_param.data + 0.005*param.data)
-
-				for param, target_param in zip(self.Q2.parameters(), self.Q2_target.parameters()):
-					target_param.data.copy_(0.995*target_param.data + 0.005*param.data)
-			self.Q1_target.eval()
-			self.Q2_target.eval()
+				for param, target_param in zip(self.V.parameters(), self.V_target.parameters()):
+					target_param.data.copy_(0.995 * target_param.data + 0.005 * param.data)
 
 			self.sample_step(random=False)
 
@@ -231,16 +238,17 @@ class SACModern:
 						'Q1':self.Q1.state_dict(),
 						'Q2': self.Q2.state_dict(),
 						'Pi':self.Pi.state_dict(),
+						'V': self.V.state_dict(),
 						'log_alpha':self.log_alpha
 					},
-					'modern_%d.pth' % (num_ckpt)
+					'standard_%d.pth' % (num_ckpt)
 				)
 				num_ckpt += 1
 
 def play():
 	env = DeepMindWrapper('walker', 'walk')
 	Pi = PiNetwork(24, 6)
-	ckpt = torch.load('./modern_3.pth')
+	ckpt = torch.load('./standard_3.pth')
 	Pi.load_state_dict(ckpt['Pi'])
 
 	state, _ = env.reset()
@@ -252,11 +260,12 @@ def play():
 		state, reward, terminal, _, _ = env.step(action)
 		if terminal:
 			break
-	imageio.mimsave('walker_modern.gif', gifs, duration=50, loop=1000)
-
+	imageio.mimsave('walker_standard.gif', gifs, duration=50, loop=1000)
 
 if __name__ == '__main__':
-	# sac = SACModern()
-	# sac.train()
+	sac = SACStandard()
+	sac.train()
 
-	play()
+
+
+
