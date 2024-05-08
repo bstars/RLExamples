@@ -23,7 +23,7 @@ This repository contains implementations of common reinforcement learning algori
   <img width="50%" src="https://github.com/bstars/RLExamples/blob/main/sac/walker_standard.gif">
 </p>
 
-- Diversity is All You Need (according to [the paper](https://arxiv.org/abs/1802.06070)) for BipedalWalker example
+- Diversity is All You Need (according to [Diversity is All You Need: Learning Skills without a Reward Function](https://arxiv.org/abs/1802.06070)) for BipedalWalker example
 
 Skill 8                  | Skill 16                | Skill 18
 :-----------------------:|:-----------------------:|:-----------------------:
