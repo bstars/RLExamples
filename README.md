@@ -22,3 +22,9 @@ This repository contains implementations of common reinforcement learning algori
 <p>
   <img width="50%" src="https://github.com/bstars/RLExamples/blob/main/sac/walker_standard.gif">
 </p>
+
+- Diversity is All You Need (according to [](https://arxiv.org/abs/1802.06070)) for BipedalWalker example
+
+Skill 8                  | Skill 16                | Skill 18
+:-----------------------:|:-----------------------:|:-----------------------:
+![](https://github.com/bstars/RLExamples/blob/main/diayn/skill_8.gif) | ![](https://github.com/bstars/RLExamples/blob/main/diayn/skill_16.gif) | ![](https://github.com/bstars/RLExamples/blob/main/diayn/skill_18.gif)
